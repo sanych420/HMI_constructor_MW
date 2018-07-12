@@ -30,4 +30,4 @@ SOURCES += \
 HEADERS += \
         monitoringwidget.h
 
-LIBS += -lpdh -lpsapi
+win32:LIBS += -lpdh -lpsapi

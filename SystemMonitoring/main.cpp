@@ -7,5 +7,7 @@ int main(int argc, char *argv[])
     MonitoringWidget w;
     w.show();
 
+    w.resize(800, 600);
+
     return a.exec();
 }
