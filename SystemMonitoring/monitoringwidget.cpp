@@ -1,6 +1,7 @@
 #include "monitoringwidget.h"
 #define KB 1000
 #define MB 1000000
+#define GB 1000000000
 
 //the following code was partly inspired by:
 //https://stackoverflow.com/questions/63166/how-to-determine-cpu-and-memory-consumption-from-inside-a-process
@@ -22,19 +23,34 @@ void MonitoringWidget::init()
     connect(timer,SIGNAL(timeout()),this,SLOT(updateAll()));
     timer->start(1000);
 
-
-    setHomePath(QDir::homePath());
+    setHomePath("C:/testFolder/");
+    dir.setPath(homePath);
 
     table = new QTableView(this);
-    model = new QStandardItemModel(7,2,this); //7 Rows and 2 Columns
+    model = new QStandardItemModel(7, 2, this); //7 Rows and 2 Columns
     model->setHorizontalHeaderItem(0, new QStandardItem(tr("String")));
     model->setHorizontalHeaderItem(1, new QStandardItem(tr("Value")));
     table->setModel(model);
 
-    //    RAMstring = new QStandardItem(tr("Total RAM:"));
-    //    RAMvalue->setText(tr("%1").arg(RAMTotal));
-    //    model->setItem(0,0,RAMstring);
-    //    model->setItem(0,1,RAMvalue);
+    RAMTotalValue = new QStandardItem(tr("%1").arg(RAMTotal));
+    model->setItem(0, 0, new QStandardItem(tr("Total RAM:")));
+    model->setItem(0, 1, RAMTotalValue);
+    RAMUsedValue = new QStandardItem(tr("%1").arg(RAMUsed));
+    model->setItem(1, 0, new QStandardItem(tr("Used RAM:")));
+    model->setItem(1, 1, RAMUsedValue);
+    RAMUsedByCurrentProcessValue = new QStandardItem(tr("%1").arg(RAMUsedByCurrentProcess));
+    model->setItem(2, 0, new QStandardItem(tr("RAM used by this process:")));
+    model->setItem(2, 1, RAMUsedByCurrentProcessValue);
+    folderFilesValue = new QStandardItem(tr("%1").arg(folderFiles));
+    model->setItem(3, 0, new QStandardItem(tr("Files in home folder:")));
+    model->setItem(3, 1, folderFilesValue);
+    folderSizeValue = new QStandardItem(tr("%1").arg(folderSize));
+    model->setItem(4, 0, new QStandardItem(tr("Size of home folder:")));
+    model->setItem(4, 1, folderSizeValue);
+    uptimeValue = new QStandardItem(uptime);
+    model->setItem(5, 0, new QStandardItem(tr("Uptime:")));
+    model->setItem(5, 1, uptimeValue);
+
 
     QHBoxLayout *layout = new QHBoxLayout(this);
     table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -145,22 +161,22 @@ void MonitoringWidget::getDiskInfo()
     spaceFree = storage.bytesAvailable() / MB;
 }
 
-void MonitoringWidget::getCurrentFolderSize()
+void MonitoringWidget::getCurrentFolderInfo()
 {
-    QDir directory(homePath);
-    QStringList files = directory.entryList(QStringList(),QDir::Files);
-    foreach(QString filename, files)
+    QDirIterator it(homePath, QDir::Files, QDirIterator::Subdirectories);
+    folderSize = 0;
+    folderFiles = 0;
+    folderFolders = 0;
+    do
     {
-        // todo
-        QString path = QFileInfo(filename).canonicalFilePath();
-        folderSize += QFileInfo(path).size();
-        qDebug() <<  "path" << path;
+        it.next();
+        if (it.fileInfo().isFile())
+        {
+            folderSize += it.fileInfo().size();
+            folderFiles++;
+        }
     }
-}
-
-void MonitoringWidget::getCurrentFolderFiles()
-{
-    folderFiles = dir.count();
+    while (it.hasNext());
 }
 
 void MonitoringWidget::getUptime()
@@ -181,7 +197,7 @@ void MonitoringWidget::getUptime()
             }
         }
     }
-    uptime = tr("%1 days, %2 hours, %3 minutes, %4 seconds").arg(uptime_d).arg(uptime_h).arg(uptime_m).arg(uptime_s);
+    uptime = tr("%1d, %2h, %3m, %4s").arg(uptime_d).arg(uptime_h).arg(uptime_m).arg(uptime_s);
 }
 
 void MonitoringWidget::updateAll()
@@ -191,10 +207,62 @@ void MonitoringWidget::updateAll()
     getRAMUsedByCurrentProcessInfo();
     getDiskInfo();
     getUptime();
-    getCurrentFolderFiles();
-    getCurrentFolderSize();
+    getCurrentFolderInfo();
+    getUserFriendlySize(1234);
     qDebug() << "ramtotal" << RAMTotal << "ramused" << RAMUsed  << "ramusedbycurrentprocess" << RAMUsedByCurrentProcess
              << "spacetotal" << spaceTotal << "spacefree" << spaceFree << uptime << "filesinfolder" << folderFiles
              << "foldersize" << folderSize;
+    RAMTotalValue->setText(tr("%1").arg(RAMTotal));
+    RAMUsedValue->setText(tr("%1").arg(RAMUsed));
+    RAMUsedByCurrentProcessValue->setText(tr("%1").arg(RAMUsedByCurrentProcess));
+    folderFilesValue->setText(tr("%1").arg(folderFiles));
+    folderSizeValue->setText(tr("%1").arg(folderSize));
+    uptimeValue->setText(uptime);
+}
 
+QString MonitoringWidget::getUserFriendlySize(int size)
+{
+    // basic size is in bytes
+    int sizeLeft, sizeDiv = 0;
+    QString newSize = QString("%1").arg(size);
+    if (size > GB - 1)
+    {
+        sizeDiv = size / GB; // GB
+        sizeLeft = size % GB;
+        qDebug() << sizeDiv << "GB";
+        if (sizeLeft > MB - 1)
+        {
+            sizeDiv = sizeLeft / MB; // MB
+            sizeLeft = sizeLeft % MB;
+            qDebug() << sizeDiv << "MB";
+            if (sizeLeft > KB - 1)
+            {
+                sizeDiv = sizeLeft / KB; // KB
+                sizeLeft = sizeLeft % KB;
+                qDebug() << sizeDiv << "KB";
+                qDebug() << sizeLeft << "B";
+            }
+        }
+    }
+    else if (size > MB - 1)
+    {
+        sizeDiv = size / MB; // MB
+        sizeLeft = size % MB;
+        qDebug() << sizeDiv << "MB";
+        if (sizeLeft > KB - 1)
+        {
+            sizeDiv = sizeLeft / KB; // KB
+            sizeLeft = sizeLeft % KB;
+            qDebug() << sizeDiv << "KB";
+            qDebug() << sizeLeft << "B";
+        }
+    }
+    else if (size > KB - 1)
+    {
+        sizeDiv = size / KB; // KB
+        sizeLeft = size % KB;
+        qDebug() << sizeDiv << "KB";
+        qDebug() << sizeLeft << "B";
+    }
+    return newSize;
 }

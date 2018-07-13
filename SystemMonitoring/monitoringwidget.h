@@ -30,7 +30,8 @@ private:
 
     double RAMTotal, RAMUsed, RAMUsedByCurrentProcess;
     double spaceTotal, spaceFree;
-    int folderFiles;
+    int folderFiles = 0;
+    int folderFolders = 0;
     qreal folderSize = 0;
     uint uptime_s = 0;
     uint uptime_m = 0;
@@ -41,9 +42,10 @@ private:
 
     QTableView* table;
     QStandardItemModel *model;
-    QStandardItem *RAMvalue;
-    QStandardItem *RAMstring;
-    QDir dir = QDir(homePath);
+    QStandardItem *RAMTotalValue, *RAMUsedValue, *RAMUsedByCurrentProcessValue, *CPUUsedValue,
+                  *CPUUsedByCurrentProcessValue, *folderSizeValue, *folderFilesValue, *uptimeValue,
+                  *spaceTotalValue, *spaceFreeValue;
+    QDir dir;
 
     void getTotalRAM();
     void getRAMUsedTotalInfo();
@@ -52,8 +54,9 @@ private:
     void getCPUUsedByCurrentProcessInfo();
     void getUptime();
     void getDiskInfo();
-    void getCurrentFolderSize();
-    void getCurrentFolderFiles();
+    void getCurrentFolderInfo();
+
+    QString getUserFriendlySize(int size);
 
     int linuxParseLine(char* line);
     int linuxGetValue();
