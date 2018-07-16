@@ -1,10 +1,12 @@
 #include "monitoringwidget.h"
-#define KB 1000
-#define MB 1000000
-#define GB 1000000000
+#include "iostream"
+#define KB 1024
+#define MB 1048576
+#define GB 1073741824
 
-//the following code was partly inspired by:
+//the following code was heavily inspired by:
 //https://stackoverflow.com/questions/63166/how-to-determine-cpu-and-memory-consumption-from-inside-a-process
+//and a couple of others SO pages
 
 MonitoringWidget::MonitoringWidget(QWidget *parent)
     : QWidget(parent)
@@ -19,44 +21,69 @@ MonitoringWidget::~MonitoringWidget()
 
 void MonitoringWidget::init()
 {
+#ifdef __linux__
+    PID = getpid();
+#endif
     QTimer *timer = new QTimer(this);
+    timer->setSingleShot(false);
     connect(timer,SIGNAL(timeout()),this,SLOT(updateAll()));
     timer->start(1000);
 
-    setHomePath("C:/testFolder/");
+    setHomePath("C:/Windows/System32/drivers/etc");
     dir.setPath(homePath);
 
     table = new QTableView(this);
-    model = new QStandardItemModel(7, 2, this); //7 Rows and 2 Columns
+    model = new QStandardItemModel(10, 2, this);
     model->setHorizontalHeaderItem(0, new QStandardItem(tr("String")));
     model->setHorizontalHeaderItem(1, new QStandardItem(tr("Value")));
     table->setModel(model);
 
-    RAMTotalValue = new QStandardItem(tr("%1").arg(RAMTotal));
+    getTotalRAM();
     model->setItem(0, 0, new QStandardItem(tr("Total RAM:")));
-    model->setItem(0, 1, RAMTotalValue);
-    RAMUsedValue = new QStandardItem(tr("%1").arg(RAMUsed));
+    model->setItem(0, 1, new QStandardItem(RAMTotal));
+
+    RAMUsedValue = new QStandardItem(RAMUsed);
     model->setItem(1, 0, new QStandardItem(tr("Used RAM:")));
     model->setItem(1, 1, RAMUsedValue);
-    RAMUsedByCurrentProcessValue = new QStandardItem(tr("%1").arg(RAMUsedByCurrentProcess));
+
+    RAMUsedByCurrentProcessValue = new QStandardItem(RAMUsedByCurrentProcess);
     model->setItem(2, 0, new QStandardItem(tr("RAM used by this process:")));
     model->setItem(2, 1, RAMUsedByCurrentProcessValue);
+
     folderFilesValue = new QStandardItem(tr("%1").arg(folderFiles));
     model->setItem(3, 0, new QStandardItem(tr("Files in home folder:")));
     model->setItem(3, 1, folderFilesValue);
-    folderSizeValue = new QStandardItem(tr("%1").arg(folderSize));
+
+    folderSizeValue = new QStandardItem(folderSizeString);
     model->setItem(4, 0, new QStandardItem(tr("Size of home folder:")));
     model->setItem(4, 1, folderSizeValue);
+
     uptimeValue = new QStandardItem(uptime);
     model->setItem(5, 0, new QStandardItem(tr("Uptime:")));
     model->setItem(5, 1, uptimeValue);
 
+    getDiskInfo();
+    model->setItem(6, 0, new QStandardItem(tr("Total disk space:")));
+    model->setItem(6, 1, new QStandardItem(spaceTotal));
+
+    spaceFreeValue = new QStandardItem(spaceFree);
+    model->setItem(7, 0, new QStandardItem(tr("Free disk space:")));
+    model->setItem(7, 1, spaceFreeValue);
+
+    CPUUsedByCurrentProcessValue = new QStandardItem(CPUUsedByCurrentProcess);
+    model->setItem(8, 0, new QStandardItem(tr("CPU Usage:")));
+    model->setItem(8, 1, CPUUsedByCurrentProcessValue);
+
+    CPUUsedValue = new QStandardItem(CPUUsedTotal);
+    model->setItem(9, 0, new QStandardItem(tr("CPU total usage:")));
+    model->setItem(9, 1, CPUUsedValue);
 
     QHBoxLayout *layout = new QHBoxLayout(this);
-    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     layout->addWidget(table);
-    layout->addStretch(1);
+    QWidget* dummyWidget = new QWidget(this); // for future graphics
+    layout->addWidget(dummyWidget);
     setLayout(layout);
+    table->resizeColumnsToContents();
 
 }
 
@@ -67,7 +94,7 @@ void MonitoringWidget::getTotalRAM()
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     GlobalMemoryStatusEx(&memInfo);
     DWORDLONG totalPhysMem = memInfo.ullTotalPhys;
-    RAMTotal = totalPhysMem / MB;
+    RAMTotal = getUserFriendlySize(totalPhysMem);
 #elif __linux__
     struct sysinfo memInfo;
 
@@ -75,7 +102,7 @@ void MonitoringWidget::getTotalRAM()
     long long totalPhysMem = memInfo.totalram;
     //Multiply in next statement to avoid int overflow on right hand side...
     totalPhysMem *= memInfo.mem_unit;
-    RAMTotal = totalPhysMem / MB;
+    RAMTotal = getUserFriendlySize(totalPhysMem);
 #endif
 }
 
@@ -86,7 +113,7 @@ void MonitoringWidget::getRAMUsedTotalInfo()
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     GlobalMemoryStatusEx(&memInfo);
     DWORDLONG physMemUsed = memInfo.ullTotalPhys - memInfo.ullAvailPhys;
-    RAMUsed = physMemUsed / MB;
+    RAMUsed = getUserFriendlySize(physMemUsed);
 #elif __linux__
     struct sysinfo memInfo;
 
@@ -94,13 +121,25 @@ void MonitoringWidget::getRAMUsedTotalInfo()
     long long physMemUsed = memInfo.totalram - memInfo.freeram;
     //Multiply in next statement to avoid int overflow on right hand side...
     physMemUsed *= memInfo.mem_unit;
-    RAMUsed = physMemUsed / MB;
+    RAMUsed = getUserFriendlySize(physMemUsed);
 #endif
 }
 
+void MonitoringWidget::getRAMUsedByCurrentProcessInfo()
+{
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc));
+    SIZE_T physMemUsedByMe = pmc.WorkingSetSize;
+    RAMUsedByCurrentProcess = getUserFriendlySize(physMemUsedByMe);
+#elif __linux__
+    RAMUsedByCurrentProcess = getUserFriendlySize(linuxGetValue());
+#endif
+}
+
+#ifdef __linux__
 int MonitoringWidget::linuxParseLine(char *line)
 {
-#ifdef __linux__
     // This assumes that a digit will be found and the line ends in " Kb".
     int i = strlen(line);
     const char* p = line;
@@ -108,57 +147,145 @@ int MonitoringWidget::linuxParseLine(char *line)
     line[i-3] = '\0';
     i = atoi(p);
     return i;
-#endif
     Q_UNUSED(line);
-    return 0;
 }
 
 int MonitoringWidget::linuxGetValue() // in KB
 {
-#ifdef __linux__
     FILE* file = fopen("/proc/self/status", "r");
     int result = -1;
     char line[128];
 
     while (fgets(line, 128, file) != NULL){
         if (strncmp(line, "VmRSS:", 6) == 0){
-            result = linuxParseLine(line);
+            result = linuxParseLine(line) * KB;
             break;
         }
     }
     fclose(file);
     return result;
-#endif
-    return 0;
 }
 
-void MonitoringWidget::getRAMUsedByCurrentProcessInfo()
+void MonitoringWidget::linuxReadProcStats1() // reading proc/stat in two turns, then calculating the delta and getting an average CPU usage
 {
-#ifdef _WIN32
-    PROCESS_MEMORY_COUNTERS pmc;
-    GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
-    SIZE_T physMemUsedByMe = pmc.WorkingSetSize;
-    RAMUsedByCurrentProcess = physMemUsedByMe / MB;
-#elif __linux__
-    RAMUsedByCurrentProcess = linuxGetValue() / KB;
-#endif
+    FILE *fp;
+    fp = fopen("/proc/stat","r");
+    fscanf(fp,"%*s %lf %lf %lf %lf", &CPUNumbersBefore[0], &CPUNumbersBefore[1],
+            &CPUNumbersBefore[2], &CPUNumbersBefore[3]);
+    fclose(fp);
 }
+
+void MonitoringWidget::linuxReadProcStats2()
+{
+    FILE *fp;
+    fp = fopen("/proc/stat","r");
+    fscanf(fp,"%*s %lf %lf %lf %lf", &CPUNumbersAfter[0], &CPUNumbersAfter[1],
+            &CPUNumbersAfter[2], &CPUNumbersAfter[3]);
+    fclose(fp);
+
+    totalCPUUsageBefore = CPUNumbersBefore[0]+CPUNumbersBefore[1]+CPUNumbersBefore[2]+CPUNumbersBefore[3];
+    totalCPUUsageAfter = CPUNumbersAfter[0]+CPUNumbersAfter[1]+CPUNumbersAfter[2]+CPUNumbersAfter[3];
+
+    loadavg = 100 * ((CPUNumbersAfter[0]+CPUNumbersAfter[1]+CPUNumbersAfter[2]) -
+            (CPUNumbersBefore[0]+CPUNumbersBefore[1]+CPUNumbersBefore[2])) /
+            ((CPUNumbersAfter[0]+CPUNumbersAfter[1]+CPUNumbersAfter[2]+CPUNumbersAfter[3]) -
+            (CPUNumbersBefore[0]+CPUNumbersBefore[1]+CPUNumbersBefore[2]+CPUNumbersBefore[3]));
+    CPUUsedTotal = QString::number(loadavg);
+}
+
+
+void MonitoringWidget::linuxReadProcStatsForCurrentProc1() // same thing as with the total CPU info, but for a certain process, using current process' PID
+{
+    PIDstring = QString("/proc/%1/stat").arg(PID).toStdString().c_str();
+    FILE *fp;
+    fp = fopen(PIDstring,"r");
+
+    fscanf(fp,
+           "%*d %*s %*c %*d" //pid, command, state, ppid
+
+           "%*d %*d %*d %*d %*u %*u %*u %*u %*u"
+
+           "%lf %lf" //usertime,
+
+           "%*d %*d %*d %*d %*d %*d %*u"
+
+           "%*u", //virtual memory size in bytes
+           &CPUProcessNumbersBefore[0], &CPUProcessNumbersBefore[1]);
+    fclose(fp);
+}
+
+void MonitoringWidget::linuxReadProcStatsForCurrentProc2()
+{
+    PIDstring = QString("/proc/%1/stat").arg(PID).toStdString().c_str();
+    FILE *fp;
+    fp = fopen(PIDstring,"r");
+    fscanf(fp,
+           "%*d %*s %*c %*d" //pid, command, state, ppid
+
+           "%*d %*d %*d %*d %*u %*u %*u %*u %*u"
+
+           "%lf %lf" //usertime, systemtime
+
+           "%*d %*d %*d %*d %*d %*d %*u"
+
+           "%*u", //virtual memory size in bytes
+           &CPUProcessNumbersAfter[0], &CPUProcessNumbersAfter[1]);
+    fclose(fp);
+    processCPUUsageBefore = CPUProcessNumbersBefore[0] + CPUProcessNumbersBefore[1];
+    processCPUUsageAfter = CPUProcessNumbersAfter[0] + CPUProcessNumbersAfter[1];
+
+    loadavgCurr = (processCPUUsageAfter - processCPUUsageBefore) * 100 / (float) (totalCPUUsageAfter - totalCPUUsageBefore);
+
+    CPUUsedByCurrentProcess = QString::number(loadavgCurr);
+}
+#endif
 
 void MonitoringWidget::getCPUUsedTotalInfo()
 {
+#ifdef _WIN32
+    PDH_HQUERY cpuQuery;
+    PDH_HCOUNTER cpuTotal;
 
+    PdhOpenQuery(NULL, NULL, &cpuQuery);
+    PdhAddCounter(cpuQuery, L"\\Processor(_Total)\\% Processor Time", NULL, &cpuTotal);
+    PdhCollectQueryData(cpuQuery);
+    Sleep(200); // may casue visible lags
+
+    PDH_FMT_COUNTERVALUE counterVal;
+    PdhCollectQueryData(cpuQuery);
+    PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, NULL, &counterVal);
+
+    CPUUsedTotal = QString::number(counterVal.doubleValue);
+#endif
 }
 
 void MonitoringWidget::getCPUUsedByCurrentProcessInfo()
 {
+#ifdef _WIN32
+    PDH_HQUERY cpuQuery;
+    PDH_HCOUNTER cpuTotal;
 
+    QString processName = qApp->applicationName();
+
+    PdhOpenQuery(NULL, NULL, &cpuQuery);
+    PdhAddCounterA(cpuQuery, QString("\\Process(%1)\\% Processor Time").arg(processName).toStdString().c_str(),
+                   NULL, &cpuTotal);
+    PdhCollectQueryData(cpuQuery);
+    Sleep(200); // may casue visible lags
+
+    PDH_FMT_COUNTERVALUE counterVal;
+    PdhCollectQueryData(cpuQuery);
+    PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, NULL, &counterVal);
+
+    CPUUsedByCurrentProcess = QString::number(counterVal.doubleValue);
+#endif
 }
 
 void MonitoringWidget::getDiskInfo()
 {
     QStorageInfo storage = QStorageInfo(QDir::homePath());
-    spaceTotal = storage.bytesTotal() / MB;
-    spaceFree = storage.bytesAvailable() / MB;
+    spaceTotal = getUserFriendlySize(storage.bytesTotal());
+    spaceFree = getUserFriendlySize(storage.bytesAvailable());
 }
 
 void MonitoringWidget::getCurrentFolderInfo()
@@ -166,7 +293,6 @@ void MonitoringWidget::getCurrentFolderInfo()
     QDirIterator it(homePath, QDir::Files, QDirIterator::Subdirectories);
     folderSize = 0;
     folderFiles = 0;
-    folderFolders = 0;
     do
     {
         it.next();
@@ -175,6 +301,7 @@ void MonitoringWidget::getCurrentFolderInfo()
             folderSize += it.fileInfo().size();
             folderFiles++;
         }
+        folderSizeString = getUserFriendlySize(folderSize);
     }
     while (it.hasNext());
 }
@@ -208,61 +335,168 @@ void MonitoringWidget::updateAll()
     getDiskInfo();
     getUptime();
     getCurrentFolderInfo();
-    getUserFriendlySize(1234);
-    qDebug() << "ramtotal" << RAMTotal << "ramused" << RAMUsed  << "ramusedbycurrentprocess" << RAMUsedByCurrentProcess
-             << "spacetotal" << spaceTotal << "spacefree" << spaceFree << uptime << "filesinfolder" << folderFiles
-             << "foldersize" << folderSize;
-    RAMTotalValue->setText(tr("%1").arg(RAMTotal));
-    RAMUsedValue->setText(tr("%1").arg(RAMUsed));
-    RAMUsedByCurrentProcessValue->setText(tr("%1").arg(RAMUsedByCurrentProcess));
+    getCPUUsedTotalInfo();
+    getCPUUsedByCurrentProcessInfo();
+#ifdef __linux__
+    if (!secondPhase) // while other functions are called using QTimer with 1000 ms delay,
+        //these two (actually four) should be called every 1000 ms each, i.e. information will be updating 2x slower
+    {
+        linuxReadProcStats1();
+        linuxReadProcStatsForCurrentProc1();
+        secondPhase = true;
+    }
+    else
+    {
+        linuxReadProcStats2();
+        linuxReadProcStatsForCurrentProc2();
+        secondPhase = false;
+    }
+#endif
+    RAMUsedValue->setText(RAMUsed);
+    RAMUsedByCurrentProcessValue->setText(RAMUsedByCurrentProcess);
     folderFilesValue->setText(tr("%1").arg(folderFiles));
-    folderSizeValue->setText(tr("%1").arg(folderSize));
+    folderSizeValue->setText(folderSizeString);
     uptimeValue->setText(uptime);
+    spaceFreeValue->setText(spaceFree);
+    CPUUsedByCurrentProcessValue->setText(CPUUsedByCurrentProcess + "%");
+    CPUUsedValue->setText(CPUUsedTotal + "%");
+
 }
 
-QString MonitoringWidget::getUserFriendlySize(int size)
+QString MonitoringWidget::getUserFriendlySize(qint64 size)
 {
-    // basic size is in bytes
-    int sizeLeft, sizeDiv = 0;
+    // "size" should be in bytes
+    int sizeLeft = 0;
+    int sizeGB = 0;
+    int sizeMB = 0;
+    int sizeKB = 0;
     QString newSize = QString("%1").arg(size);
     if (size > GB - 1)
     {
-        sizeDiv = size / GB; // GB
+        sizeGB = size / GB; // GB
         sizeLeft = size % GB;
-        qDebug() << sizeDiv << "GB";
         if (sizeLeft > MB - 1)
         {
-            sizeDiv = sizeLeft / MB; // MB
+            sizeMB = sizeLeft / MB; // MB
             sizeLeft = sizeLeft % MB;
-            qDebug() << sizeDiv << "MB";
             if (sizeLeft > KB - 1)
             {
-                sizeDiv = sizeLeft / KB; // KB
-                sizeLeft = sizeLeft % KB;
-                qDebug() << sizeDiv << "KB";
-                qDebug() << sizeLeft << "B";
+                sizeKB = sizeLeft / KB; // KB
+                sizeLeft = sizeLeft % KB; //B
             }
         }
     }
     else if (size > MB - 1)
     {
-        sizeDiv = size / MB; // MB
+        sizeMB = size / MB; // MB
         sizeLeft = size % MB;
-        qDebug() << sizeDiv << "MB";
         if (sizeLeft > KB - 1)
         {
-            sizeDiv = sizeLeft / KB; // KB
-            sizeLeft = sizeLeft % KB;
-            qDebug() << sizeDiv << "KB";
-            qDebug() << sizeLeft << "B";
+            sizeKB = sizeLeft / KB; // KB
+            sizeLeft = sizeLeft % KB; //B
         }
     }
     else if (size > KB - 1)
     {
-        sizeDiv = size / KB; // KB
-        sizeLeft = size % KB;
-        qDebug() << sizeDiv << "KB";
-        qDebug() << sizeLeft << "B";
+        sizeKB = size / KB; // KB
+        sizeLeft = size % KB; //B
+    }
+    else if (size <= KB - 1)
+    {
+        sizeLeft = size; //B
+    }
+    if (sizeGB > 0)
+    {
+        if (sizeMB > 0)
+        {
+            if (sizeKB > 0)
+            {
+                if (sizeLeft > 0)
+                {
+                    newSize = tr("%1 GB, %2 MB, %3 KB, %4 B").arg(sizeGB).arg(sizeMB).arg(sizeKB).arg(sizeLeft);
+                }
+                else
+                {
+                    newSize = tr("%1 GB, %2 MB, %3 KB").arg(sizeGB).arg(sizeMB).arg(sizeKB);
+                }
+            }
+            else
+            {
+                if (sizeLeft > 0)
+                {
+                    newSize = tr("%1 GB, %2 MB, %3 B").arg(sizeGB).arg(sizeMB).arg(sizeLeft);
+                }
+                else
+                {
+                    newSize = tr("%1 GB, %2 MB").arg(sizeGB).arg(sizeMB);
+                }
+            }
+        }
+        else
+        {
+            if (sizeKB > 0)
+            {
+                if (sizeLeft > 0)
+                {
+                    newSize = tr("%1 GB, %2 KB, %3 B").arg(sizeGB).arg(sizeKB).arg(sizeLeft);
+                }
+                else
+                {
+                    newSize = tr("%1 GB, %2 KB").arg(sizeGB).arg(sizeKB);
+                }
+            }
+            else
+            {
+                if (sizeLeft > 0)
+                {
+                    newSize = tr("%1 GB, %2 B").arg(sizeGB).arg(sizeLeft);
+                }
+                else
+                {
+                    newSize = tr("%1 GB").arg(sizeGB);
+                }
+            }
+        }
+    }
+    else if (sizeMB > 0)
+    {
+        if (sizeKB > 0)
+        {
+            if (sizeLeft > 0)
+            {
+                newSize = tr("%1 MB, %2 KB, %3 B").arg(sizeMB).arg(sizeKB).arg(sizeLeft);
+            }
+            else
+            {
+                newSize = tr("%1 MB, %2 KB").arg(sizeMB).arg(sizeKB);
+            }
+        }
+        else
+        {
+            if (sizeLeft > 0)
+            {
+                newSize = tr("%1 MB, %2 B").arg(sizeMB).arg(sizeLeft);
+            }
+            else
+            {
+                newSize = tr("%1 MB").arg(sizeMB);
+            }
+        }
+    }
+    else if (sizeKB > 0)
+    {
+        if (sizeLeft > 0)
+        {
+            newSize = tr("%1 KB, %2 B").arg(sizeKB).arg(sizeLeft);
+        }
+        else
+        {
+            newSize = tr("%1 KB").arg(sizeKB);
+        }
+    }
+    else if (sizeLeft > 0)
+    {
+        newSize = tr("%1 B").arg(sizeLeft);
     }
     return newSize;
 }

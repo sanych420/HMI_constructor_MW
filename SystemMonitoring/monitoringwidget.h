@@ -13,6 +13,9 @@
 #elif __linux__
 #include "sys/types.h"
 #include "sys/sysinfo.h"
+#include "sys/times.h"
+#include "sys/vtimes.h"
+#include "unistd.h"
 #endif
 
 class MonitoringWidget : public QWidget
@@ -28,11 +31,12 @@ public:
 
 private:
 
-    double RAMTotal, RAMUsed, RAMUsedByCurrentProcess;
-    double spaceTotal, spaceFree;
+    QString RAMTotal, RAMUsed, RAMUsedByCurrentProcess;
+    QString spaceTotal, spaceFree;
+    QString CPUUsedByCurrentProcess, CPUUsedTotal;
     int folderFiles = 0;
-    int folderFolders = 0;
-    qreal folderSize = 0;
+    int folderSize = 0;
+    QString folderSizeString;
     uint uptime_s = 0;
     uint uptime_m = 0;
     uint uptime_h = 0;
@@ -42,9 +46,8 @@ private:
 
     QTableView* table;
     QStandardItemModel *model;
-    QStandardItem *RAMTotalValue, *RAMUsedValue, *RAMUsedByCurrentProcessValue, *CPUUsedValue,
-                  *CPUUsedByCurrentProcessValue, *folderSizeValue, *folderFilesValue, *uptimeValue,
-                  *spaceTotalValue, *spaceFreeValue;
+    QStandardItem *RAMUsedValue, *RAMUsedByCurrentProcessValue, *CPUUsedValue, *CPUUsedByCurrentProcessValue,
+                  *folderSizeValue, *folderFilesValue, *uptimeValue, *spaceFreeValue;
     QDir dir;
 
     void getTotalRAM();
@@ -56,10 +59,33 @@ private:
     void getDiskInfo();
     void getCurrentFolderInfo();
 
-    QString getUserFriendlySize(int size);
+    QString getUserFriendlySize(qint64 size);
 
+#ifdef __linux__
+    unsigned long long lastTotalUser, lastTotalUserLow, lastTotalSys, lastTotalIdle;
     int linuxParseLine(char* line);
     int linuxGetValue();
+    void linuxReadProcStats1();
+    void linuxReadProcStats2();
+    void linuxReadProcStatsForCurrentProc1();
+    void linuxReadProcStatsForCurrentProc2();
+    double CPUNumbersBefore[4];
+    double CPUNumbersAfter[4];
+    double CPUProcessNumbersBefore[2];
+    double CPUProcessNumbersAfter[2];
+    double loadavg;
+    double loadavgCurr;
+    int totalCPUUsageBefore;
+    int totalCPUUsageAfter;
+    int processCPUUsageBefore;
+    int processCPUUsageAfter;
+    clock_t lastCPU, lastSysCPU, lastUserCPU;
+    int numProcessors;
+    bool secondPhase = false;
+    int PID;
+    const char* PIDstring;
+#endif
+
 
 private slots:
     void updateAll();
