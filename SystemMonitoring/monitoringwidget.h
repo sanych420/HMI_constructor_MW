@@ -2,6 +2,7 @@
 #define MONITORINGWIDGET_H
 
 #include <QtWidgets>
+#include <QtConcurrent/QtConcurrent>
 #include "stdlib.h"
 #include "stdio.h"
 #include "string.h"
@@ -34,13 +35,10 @@ private:
     QString RAMTotal, RAMUsed, RAMUsedByCurrentProcess;
     QString spaceTotal, spaceFree;
     QString CPUUsedByCurrentProcess, CPUUsedTotal;
-    int folderFiles = 0;
-    int folderSize = 0;
+    quint64 folderFiles = 0;
+    quint64 folderSize = 0;
     QString folderSizeString;
     uint uptime_s = 0;
-    uint uptime_m = 0;
-    uint uptime_h = 0;
-    uint uptime_d = 0;
     QString uptime;
     QString homePath;
 
@@ -55,9 +53,11 @@ private:
     void getRAMUsedByCurrentProcessInfo();
     void getUptime();
     void getDiskInfo();
-    void getCurrentFolderInfo();
 
-    QString getUserFriendlySize(qint64 size);
+    void getFolderFiles();
+    void getFolderSize();
+
+    QString getUserFriendlySize(quint64 bytes);
 
     bool secondPhase = false;
 
@@ -99,6 +99,7 @@ private:
 
 private slots:
     void updateAll();
+    void updateFolderInfo(const QString &path);
 
 };
 

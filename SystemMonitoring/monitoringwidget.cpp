@@ -23,20 +23,35 @@ void MonitoringWidget::init()
 {
 #ifdef __linux__
     PID = getpid();
+    setHomePath("/media/");
 #elif _WIN32
     processName = qApp->applicationName();
+    PdhOpenQuery(NULL, 0, &cpuQueryTotal);
+    PdhOpenQuery(NULL, 0, &cpuQueryCurrentProc);
+    setHomePath("C:/Windows");
 #endif
+    getTotalRAM();
+    getRAMUsedTotalInfo();
+    getRAMUsedByCurrentProcessInfo();
+    getDiskInfo();
+    getUptime();
+
     QTimer *timer = new QTimer(this);
     timer->setSingleShot(false);
     connect(timer,SIGNAL(timeout()),this,SLOT(updateAll()));
     timer->start(1000);
 
-    setHomePath("C:/Windows/System32/drivers/etc");
+
     dir.setPath(homePath);
+    updateFolderInfo(homePath);
+
+    QFileSystemWatcher* watcher = new QFileSystemWatcher;
+    watcher->addPath(homePath);
+    connect(watcher, SIGNAL(directoryChanged(QString)), this, SLOT(updateFolderInfo(QString)));
 
     table = new QTableView(this);
     model = new QStandardItemModel(10, 2, this);
-    model->setHorizontalHeaderItem(0, new QStandardItem(tr("String")));
+    model->setHorizontalHeaderItem(0, new QStandardItem(tr("Parameter")));
     model->setHorizontalHeaderItem(1, new QStandardItem(tr("Value")));
     table->setModel(model);
 
@@ -80,12 +95,16 @@ void MonitoringWidget::init()
     model->setItem(9, 0, new QStandardItem(tr("CPU total usage:")));
     model->setItem(9, 1, CPUUsedValue);
 
+
     QHBoxLayout *layout = new QHBoxLayout(this);
     layout->addWidget(table);
     QWidget* dummyWidget = new QWidget(this); // for future graphics
     layout->addWidget(dummyWidget);
     setLayout(layout);
-    table->resizeColumnsToContents();
+    table->setSelectionMode(QAbstractItemView::NoSelection);
+    table->verticalHeader()->setVisible(false);
+    table->resizeColumnToContents(0);
+    table->horizontalHeader()->setStretchLastSection(true);
 
 }
 
@@ -192,7 +211,7 @@ void MonitoringWidget::linuxReadProcStats2()
             (CPUNumbersBefore[0]+CPUNumbersBefore[1]+CPUNumbersBefore[2])) /
             ((CPUNumbersAfter[0]+CPUNumbersAfter[1]+CPUNumbersAfter[2]+CPUNumbersAfter[3]) -
             (CPUNumbersBefore[0]+CPUNumbersBefore[1]+CPUNumbersBefore[2]+CPUNumbersBefore[3]));
-    CPUUsedTotal = QString::number(loadavg);
+    CPUUsedTotal = QString::number(loadavg, 'f', 1);
 }
 
 
@@ -238,15 +257,15 @@ void MonitoringWidget::linuxReadProcStatsForCurrentProc2()
 
     loadavgCurr = (processCPUUsageAfter - processCPUUsageBefore) * 100 / (float) (totalCPUUsageAfter - totalCPUUsageBefore);
 
-    CPUUsedByCurrentProcess = QString::number(loadavgCurr);
+    CPUUsedByCurrentProcess = QString::number(loadavgCurr, 'f', 1);
 }
 #endif
 
 #ifdef _WIN32
 void MonitoringWidget::win32BeginQueryCPUTotal()
 {
-    PdhOpenQuery(NULL, NULL, &cpuQueryTotal);
-    PdhAddCounter(cpuQueryTotal, L"\\Processor(_Total)\\% Processor Time", NULL, &cpuCounterTotal);
+
+    PdhAddCounter(cpuQueryTotal, L"\\Processor(_Total)\\% Processor Time", 0, &cpuCounterTotal);
     PdhCollectQueryData(cpuQueryTotal);
 }
 
@@ -256,14 +275,14 @@ void MonitoringWidget::win32CollectQueryCPUTotal()
     PdhCollectQueryData(cpuQueryTotal);
     PdhGetFormattedCounterValue(cpuCounterTotal, PDH_FMT_DOUBLE, NULL, &counterVal);
 
-    CPUUsedTotal = QString::number(counterVal.doubleValue);
+    CPUUsedTotal = QString::number(counterVal.doubleValue, 'f', 1);
 }
 
 void MonitoringWidget::win32BeginQueryCPUCurrentProc()
 {
-    PdhOpenQuery(NULL, NULL, &cpuQueryCurrentProc);
+
     PdhAddCounterA(cpuQueryCurrentProc, QString("\\Process(%1)\\% Processor Time").arg(processName).toStdString().c_str(),
-                   NULL, &cpuCounterCurrentProc);
+                   0, &cpuCounterCurrentProc);
     PdhCollectQueryData(cpuQueryCurrentProc);
 }
 
@@ -273,159 +292,50 @@ void MonitoringWidget::win32CollectQueryCpuCurrentProc()
     PdhCollectQueryData(cpuQueryCurrentProc);
     PdhGetFormattedCounterValue(cpuCounterCurrentProc, PDH_FMT_DOUBLE, NULL, &counterVal);
 
-    CPUUsedByCurrentProcess = QString::number(counterVal.doubleValue);
+    CPUUsedByCurrentProcess = QString::number(counterVal.doubleValue, 'f', 1);
 }
 #endif
 
 void MonitoringWidget::getDiskInfo()
 {
-    QStorageInfo storage = QStorageInfo(QDir::homePath());
+    QStorageInfo storage = QStorageInfo(homePath);
     spaceTotal = getUserFriendlySize(storage.bytesTotal());
     spaceFree = getUserFriendlySize(storage.bytesAvailable());
 }
 
-void MonitoringWidget::getCurrentFolderInfo()
+void MonitoringWidget::getFolderFiles()
+{
+    QDirIterator it(homePath, QDir::Files, QDirIterator::Subdirectories);
+    folderFiles = 0;
+    while (it.hasNext())
+    {
+        it.next();
+        if (it.fileInfo().isFile())
+        {
+            folderFiles++;
+        }
+    }
+}
+
+void MonitoringWidget::getFolderSize()
 {
     QDirIterator it(homePath, QDir::Files, QDirIterator::Subdirectories);
     folderSize = 0;
-    folderFiles = 0;
-    do
+    while (it.hasNext())
     {
         it.next();
         if (it.fileInfo().isFile())
         {
             folderSize += it.fileInfo().size();
-            folderFiles++;
         }
         folderSizeString = getUserFriendlySize(folderSize);
     }
-    while (it.hasNext());
 }
 
 void MonitoringWidget::getUptime()
 {
     uptime_s++;
-    if (uptime_s > 59)
-    {
-        uptime_s = 0;
-        uptime_m++;
-        if (uptime_m > 59)
-        {
-            uptime_m = 0;
-            uptime_h++;
-            if (uptime_h > 23)
-            {
-                uptime_h = 0;
-                uptime_d++;
-            }
-        }
-    }
-    if (uptime_d > 0)
-    {
-        if (uptime_h > 0)
-        {
-            if (uptime_m > 0)
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1d, %2h, %3m, %4s").arg(uptime_d).arg(uptime_h).arg(uptime_m).arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("%1d, %2h, %3m").arg(uptime_d).arg(uptime_h).arg(uptime_m);
-                }
-            }
-            else
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1d, %2h, %3s").arg(uptime_d).arg(uptime_h).arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("%1d, %2h").arg(uptime_d).arg(uptime_h);
-                }
-            }
-        }
-        else
-        {
-            if (uptime_m > 0)
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1d, %2m, %3s").arg(uptime_d).arg(uptime_m).arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("%1d, %3m").arg(uptime_d).arg(uptime_m);
-                }
-            }
-            else
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1d, %2s").arg(uptime_d).arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("%1d").arg(uptime_d);
-                }
-            }
-        }
-    }
-    else
-    {
-        if (uptime_h > 0)
-        {
-            if (uptime_m > 0)
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1h, %2m, %3s").arg(uptime_h).arg(uptime_m).arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("%1h, %2m").arg(uptime_h).arg(uptime_m);
-                }
-            }
-            else
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1h, %2s").arg(uptime_h).arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("%1h").arg(uptime_h);
-                }
-            }
-        }
-        else
-        {
-            if (uptime_m > 0)
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1m, %2s").arg(uptime_m).arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("%1m").arg(uptime_m);
-                }
-            }
-            else
-            {
-                if (uptime_s > 0)
-                {
-                    uptime = tr("%1s").arg(uptime_s);
-                }
-                else
-                {
-                    uptime = tr("zero");
-                }
-            }
-        }
-    }
+    uptime = QDateTime::fromTime_t(uptime_s).toUTC().toString("hh:mm:ss");
 }
 
 void MonitoringWidget::updateAll()
@@ -435,7 +345,6 @@ void MonitoringWidget::updateAll()
     getRAMUsedByCurrentProcessInfo();
     getDiskInfo();
     getUptime();
-    getCurrentFolderInfo();
     if (!secondPhase) // while other functions are called using QTimer with 1000 ms delay,
         //these should be called every 1000 ms each, i.e. information will be updating 2x slower
     {
@@ -469,140 +378,92 @@ void MonitoringWidget::updateAll()
     CPUUsedValue->setText(CPUUsedTotal + "%");
 }
 
-QString MonitoringWidget::getUserFriendlySize(qint64 size)
+QString MonitoringWidget::getUserFriendlySize(quint64 bytes)
 {
-    // "size" should be in bytes
-    int sizeLeft = 0;
-    int sizeGB = 0;
-    int sizeMB = 0;
-    int sizeKB = 0;
-    QString newSize = QString("%1").arg(size);
-    if (size > GB - 1)
+    QString number;
+
+    if(bytes < 0x400) //If less than 1 KB, report in B
     {
-        sizeGB = size / GB; // GB
-        sizeLeft = size % GB;
-        if (sizeLeft > MB - 1)
+        number = QLocale::system().toString(bytes);
+        number.append(" B");
+        return number;
+    }
+    else
+    {
+        if(bytes >= 0x400 && bytes < 0x100000) //If less than 1 MB, report in KB, unless rounded result is 1024 KB, then report in MB
         {
-            sizeMB = sizeLeft / MB; // MB
-            sizeLeft = sizeLeft % MB;
-            if (sizeLeft > KB - 1)
+            qlonglong result = (bytes + (0x400 / 2)) / 0x400;
+
+            if(result < 0x400)
             {
-                sizeKB = sizeLeft / KB; // KB
-                sizeLeft = sizeLeft % KB; //B
-            }
-        }
-    }
-    else if (size > MB - 1)
-    {
-        sizeMB = size / MB; // MB
-        sizeLeft = size % MB;
-        if (sizeLeft > KB - 1)
-        {
-            sizeKB = sizeLeft / KB; // KB
-            sizeLeft = sizeLeft % KB; //B
-        }
-    }
-    else if (size > KB - 1)
-    {
-        sizeKB = size / KB; // KB
-        sizeLeft = size % KB; //B
-    }
-    else if (size <= KB - 1)
-    {
-        sizeLeft = size; //B
-    }
-    if (sizeGB > 0)
-    {
-        if (sizeMB > 0)
-        {
-            if (sizeKB > 0)
-            {
-                if (sizeLeft > 0)
-                {
-                    newSize = tr("%1 GB, %2 MB, %3 KB, %4 B").arg(sizeGB).arg(sizeMB).arg(sizeKB).arg(sizeLeft);
-                }
-                else
-                {
-                    newSize = tr("%1 GB, %2 MB, %3 KB").arg(sizeGB).arg(sizeMB).arg(sizeKB);
-                }
+                number = QLocale::system().toString(result);
+                number.append(" KB");
+                return number;
             }
             else
             {
-                if (sizeLeft > 0)
-                {
-                    newSize = tr("%1 GB, %2 MB, %3 B").arg(sizeGB).arg(sizeMB).arg(sizeLeft);
-                }
-                else
-                {
-                    newSize = tr("%1 GB, %2 MB").arg(sizeGB).arg(sizeMB);
-                }
+                qlonglong result = (bytes + (0x100000 / 2)) / 0x100000;
+                number = QLocale::system().toString(result);
+                number.append(" MB");
+                return number;
             }
         }
         else
         {
-            if (sizeKB > 0)
+            if(bytes >= 0x100000 && bytes < 0x40000000) //If less than 1 GB, report in MB, unless rounded result is 1024 MB, then report in GB
             {
-                if (sizeLeft > 0)
+                qlonglong result = (bytes + (0x100000 / 2)) / 0x100000;
+
+                if(result < 0x100000)
                 {
-                    newSize = tr("%1 GB, %2 KB, %3 B").arg(sizeGB).arg(sizeKB).arg(sizeLeft);
+                    number = QLocale::system().toString(result);
+                    number.append(" MB");
+                    return number;
                 }
                 else
                 {
-                    newSize = tr("%1 GB, %2 KB").arg(sizeGB).arg(sizeKB);
+                    qlonglong result = (bytes + (0x40000000 / 2)) / 0x40000000;
+                    number = QLocale::system().toString(result);
+                    number.append(" GB");
+                    return number;
                 }
             }
             else
             {
-                if (sizeLeft > 0)
+                if(bytes >= 0x40000000 && bytes < 0x10000000000) //If less than 1 TB, report in GB, unless rounded result is 1024 GB, then report in TB
                 {
-                    newSize = tr("%1 GB, %2 B").arg(sizeGB).arg(sizeLeft);
+                    qlonglong result = (bytes + (0x40000000 / 2)) / 0x40000000;
+
+                    if(result < 0x40000000)
+                    {
+                        number = QLocale::system().toString(result);
+                        number.append(" GB");
+                        return number;
+                    }
+                    else
+                    {
+                        qlonglong result = (bytes + (0x10000000000 / 2)) / 0x10000000000;
+                        number = QLocale::system().toString(result);
+                        number.append(" TB");
+                        return number;
+                    }
                 }
                 else
                 {
-                    newSize = tr("%1 GB").arg(sizeGB);
+                    qlonglong result = (bytes + (0x10000000000 / 2)) / 0x10000000000; //If more than 1 TB, report in TB
+                    number = QLocale::system().toString(result);
+                    number.append(" TB");
+                    return number;
                 }
             }
         }
     }
-    else if (sizeMB > 0)
-    {
-        if (sizeKB > 0)
-        {
-            if (sizeLeft > 0)
-            {
-                newSize = tr("%1 MB, %2 KB, %3 B").arg(sizeMB).arg(sizeKB).arg(sizeLeft);
-            }
-            else
-            {
-                newSize = tr("%1 MB, %2 KB").arg(sizeMB).arg(sizeKB);
-            }
-        }
-        else
-        {
-            if (sizeLeft > 0)
-            {
-                newSize = tr("%1 MB, %2 B").arg(sizeMB).arg(sizeLeft);
-            }
-            else
-            {
-                newSize = tr("%1 MB").arg(sizeMB);
-            }
-        }
-    }
-    else if (sizeKB > 0)
-    {
-        if (sizeLeft > 0)
-        {
-            newSize = tr("%1 KB, %2 B").arg(sizeKB).arg(sizeLeft);
-        }
-        else
-        {
-            newSize = tr("%1 KB").arg(sizeKB);
-        }
-    }
-    else if (sizeLeft > 0)
-    {
-        newSize = tr("%1 B").arg(sizeLeft);
-    }
-    return newSize;
+    return number;
+}
+
+void MonitoringWidget::updateFolderInfo(const QString &path)
+{
+    qDebug() << path;
+    /*QFuture<void> futureFiles = */QtConcurrent::run(this, getFolderFiles);
+    /*QFuture<void> futureSize = */QtConcurrent::run(this, getFolderSize);
 }
