@@ -23,6 +23,8 @@ void MonitoringWidget::init()
 {
 #ifdef __linux__
     PID = getpid();
+#elif _WIN32
+    processName = qApp->applicationName();
 #endif
     QTimer *timer = new QTimer(this);
     timer->setSingleShot(false);
@@ -240,46 +242,40 @@ void MonitoringWidget::linuxReadProcStatsForCurrentProc2()
 }
 #endif
 
-void MonitoringWidget::getCPUUsedTotalInfo()
-{
 #ifdef _WIN32
-    PDH_HQUERY cpuQuery;
-    PDH_HCOUNTER cpuTotal;
+void MonitoringWidget::win32BeginQueryCPUTotal()
+{
+    PdhOpenQuery(NULL, NULL, &cpuQueryTotal);
+    PdhAddCounter(cpuQueryTotal, L"\\Processor(_Total)\\% Processor Time", NULL, &cpuCounterTotal);
+    PdhCollectQueryData(cpuQueryTotal);
+}
 
-    PdhOpenQuery(NULL, NULL, &cpuQuery);
-    PdhAddCounter(cpuQuery, L"\\Processor(_Total)\\% Processor Time", NULL, &cpuTotal);
-    PdhCollectQueryData(cpuQuery);
-    Sleep(200); // may casue visible lags
-
+void MonitoringWidget::win32CollectQueryCPUTotal()
+{
     PDH_FMT_COUNTERVALUE counterVal;
-    PdhCollectQueryData(cpuQuery);
-    PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, NULL, &counterVal);
+    PdhCollectQueryData(cpuQueryTotal);
+    PdhGetFormattedCounterValue(cpuCounterTotal, PDH_FMT_DOUBLE, NULL, &counterVal);
 
     CPUUsedTotal = QString::number(counterVal.doubleValue);
-#endif
 }
 
-void MonitoringWidget::getCPUUsedByCurrentProcessInfo()
+void MonitoringWidget::win32BeginQueryCPUCurrentProc()
 {
-#ifdef _WIN32
-    PDH_HQUERY cpuQuery;
-    PDH_HCOUNTER cpuTotal;
+    PdhOpenQuery(NULL, NULL, &cpuQueryCurrentProc);
+    PdhAddCounterA(cpuQueryCurrentProc, QString("\\Process(%1)\\% Processor Time").arg(processName).toStdString().c_str(),
+                   NULL, &cpuCounterCurrentProc);
+    PdhCollectQueryData(cpuQueryCurrentProc);
+}
 
-    QString processName = qApp->applicationName();
-
-    PdhOpenQuery(NULL, NULL, &cpuQuery);
-    PdhAddCounterA(cpuQuery, QString("\\Process(%1)\\% Processor Time").arg(processName).toStdString().c_str(),
-                   NULL, &cpuTotal);
-    PdhCollectQueryData(cpuQuery);
-    Sleep(200); // may casue visible lags
-
+void MonitoringWidget::win32CollectQueryCpuCurrentProc()
+{
     PDH_FMT_COUNTERVALUE counterVal;
-    PdhCollectQueryData(cpuQuery);
-    PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, NULL, &counterVal);
+    PdhCollectQueryData(cpuQueryCurrentProc);
+    PdhGetFormattedCounterValue(cpuCounterCurrentProc, PDH_FMT_DOUBLE, NULL, &counterVal);
 
     CPUUsedByCurrentProcess = QString::number(counterVal.doubleValue);
-#endif
 }
+#endif
 
 void MonitoringWidget::getDiskInfo()
 {
@@ -324,7 +320,112 @@ void MonitoringWidget::getUptime()
             }
         }
     }
-    uptime = tr("%1d, %2h, %3m, %4s").arg(uptime_d).arg(uptime_h).arg(uptime_m).arg(uptime_s);
+    if (uptime_d > 0)
+    {
+        if (uptime_h > 0)
+        {
+            if (uptime_m > 0)
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1d, %2h, %3m, %4s").arg(uptime_d).arg(uptime_h).arg(uptime_m).arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("%1d, %2h, %3m").arg(uptime_d).arg(uptime_h).arg(uptime_m);
+                }
+            }
+            else
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1d, %2h, %3s").arg(uptime_d).arg(uptime_h).arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("%1d, %2h").arg(uptime_d).arg(uptime_h);
+                }
+            }
+        }
+        else
+        {
+            if (uptime_m > 0)
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1d, %2m, %3s").arg(uptime_d).arg(uptime_m).arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("%1d, %3m").arg(uptime_d).arg(uptime_m);
+                }
+            }
+            else
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1d, %2s").arg(uptime_d).arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("%1d").arg(uptime_d);
+                }
+            }
+        }
+    }
+    else
+    {
+        if (uptime_h > 0)
+        {
+            if (uptime_m > 0)
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1h, %2m, %3s").arg(uptime_h).arg(uptime_m).arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("%1h, %2m").arg(uptime_h).arg(uptime_m);
+                }
+            }
+            else
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1h, %2s").arg(uptime_h).arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("%1h").arg(uptime_h);
+                }
+            }
+        }
+        else
+        {
+            if (uptime_m > 0)
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1m, %2s").arg(uptime_m).arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("%1m").arg(uptime_m);
+                }
+            }
+            else
+            {
+                if (uptime_s > 0)
+                {
+                    uptime = tr("%1s").arg(uptime_s);
+                }
+                else
+                {
+                    uptime = tr("zero");
+                }
+            }
+        }
+    }
 }
 
 void MonitoringWidget::updateAll()
@@ -335,23 +436,29 @@ void MonitoringWidget::updateAll()
     getDiskInfo();
     getUptime();
     getCurrentFolderInfo();
-    getCPUUsedTotalInfo();
-    getCPUUsedByCurrentProcessInfo();
-#ifdef __linux__
     if (!secondPhase) // while other functions are called using QTimer with 1000 ms delay,
-        //these two (actually four) should be called every 1000 ms each, i.e. information will be updating 2x slower
+        //these should be called every 1000 ms each, i.e. information will be updating 2x slower
     {
+#ifdef __linux__
         linuxReadProcStats1();
         linuxReadProcStatsForCurrentProc1();
+#elif _WIN32
+        win32BeginQueryCPUTotal();
+        win32BeginQueryCPUCurrentProc();
+#endif
         secondPhase = true;
     }
     else
     {
+#ifdef __linux__
         linuxReadProcStats2();
         linuxReadProcStatsForCurrentProc2();
+#elif _WIN32
+        win32CollectQueryCPUTotal();
+        win32CollectQueryCpuCurrentProc();
+#endif
         secondPhase = false;
     }
-#endif
     RAMUsedValue->setText(RAMUsed);
     RAMUsedByCurrentProcessValue->setText(RAMUsedByCurrentProcess);
     folderFilesValue->setText(tr("%1").arg(folderFiles));
@@ -360,7 +467,6 @@ void MonitoringWidget::updateAll()
     spaceFreeValue->setText(spaceFree);
     CPUUsedByCurrentProcessValue->setText(CPUUsedByCurrentProcess + "%");
     CPUUsedValue->setText(CPUUsedTotal + "%");
-
 }
 
 QString MonitoringWidget::getUserFriendlySize(qint64 size)

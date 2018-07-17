@@ -47,19 +47,30 @@ private:
     QTableView* table;
     QStandardItemModel *model;
     QStandardItem *RAMUsedValue, *RAMUsedByCurrentProcessValue, *CPUUsedValue, *CPUUsedByCurrentProcessValue,
-                  *folderSizeValue, *folderFilesValue, *uptimeValue, *spaceFreeValue;
+    *folderSizeValue, *folderFilesValue, *uptimeValue, *spaceFreeValue;
     QDir dir;
 
     void getTotalRAM();
     void getRAMUsedTotalInfo();
     void getRAMUsedByCurrentProcessInfo();
-    void getCPUUsedTotalInfo();
-    void getCPUUsedByCurrentProcessInfo();
     void getUptime();
     void getDiskInfo();
     void getCurrentFolderInfo();
 
     QString getUserFriendlySize(qint64 size);
+
+    bool secondPhase = false;
+
+#ifdef _WIN32
+    PDH_HQUERY cpuQueryTotal, cpuQueryCurrentProc;
+    PDH_HCOUNTER cpuCounterTotal, cpuCounterCurrentProc;
+    QString processName;
+    void win32BeginQueryCPUTotal();
+    void win32BeginQueryCPUCurrentProc();
+    void win32CollectQueryCPUTotal();
+    void win32CollectQueryCpuCurrentProc();
+#endif
+
 
 #ifdef __linux__
     unsigned long long lastTotalUser, lastTotalUserLow, lastTotalSys, lastTotalIdle;
@@ -81,7 +92,6 @@ private:
     int processCPUUsageAfter;
     clock_t lastCPU, lastSysCPU, lastUserCPU;
     int numProcessors;
-    bool secondPhase = false;
     int PID;
     const char* PIDstring;
 #endif
