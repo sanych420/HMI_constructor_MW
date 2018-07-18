@@ -23,7 +23,7 @@ void MonitoringWidget::init()
 {
 #ifdef __linux__
     PID = getpid();
-    setHomePath("/media/");
+    setHomePath("/usr/bin");
 #elif _WIN32
     processName = qApp->applicationName();
     PdhOpenQuery(NULL, 0, &cpuQueryTotal);
@@ -463,7 +463,7 @@ QString MonitoringWidget::getUserFriendlySize(quint64 bytes)
 
 void MonitoringWidget::updateFolderInfo(const QString &path)
 {
-    qDebug() << path;
-    /*QFuture<void> futureFiles = */QtConcurrent::run(this, getFolderFiles);
-    /*QFuture<void> futureSize = */QtConcurrent::run(this, getFolderSize);
+    QtConcurrent::run(this, &MonitoringWidget::getFolderFiles);
+    QtConcurrent::run(this, &MonitoringWidget::getFolderSize);
+    Q_UNUSED(path);
 }
